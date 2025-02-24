@@ -6,18 +6,19 @@ Obtains Area Deprivation Index (ADI) scores for US addresses
 This script uses a 4-step procedure to obtain ADI scores for US addresses:
 
 1. Load addresses
+    * Utilizes a local spreadsheet file (filled out by you)
 2. Obtain latitude/longitude coordinates for each address
     * Utilizes the [Google Maps Geocoding API](https://developers.google.com/maps/documentation/geocoding/overview)
 3. Use each address's latitude/longitude coordinates to look up its corresponding US Census FIPS code
-    * Utilizes the free & public [US FCC Area API](https://geo.fcc.gov/api/census/#!/block/get_block_find)
+    * Utilizes the free & public [US FCC Block API](https://geo.fcc.gov/api/census/#!/block/get_block_find)
 4. Use each address's FIPS code to look up its ADI scores
-    * Utilizes a pre-downloaded CSV file from the [University of Wisconsin, Madison Neighborhood Atlas](https://www.neighborhoodatlas.medicine.wisc.edu/)
+    * Utilizes pre-downloaded CSV files from the [University of Wisconsin, Madison Neighborhood Atlas](https://www.neighborhoodatlas.medicine.wisc.edu/)
 
 # Prerequisites
 
 ## Python environment
 
-This script was written using [Python 3.12.4](https://www.python.org/downloads/release/python-3124/). UCI MIND does not guarantee that it will work on older Python versions.
+This script was written using [Python 3.12](https://www.python.org/downloads/). UCI MIND does not guarantee that it will work on older Python versions.
 
 We highly recommend using a [virtual environment](https://docs.python.org/3/library/venv.html) to run this script, as it relies on some third-party Python packages. After cloning the repository, open a terminal window in the repository's root folder and run the following commands to prepare your virtual environment:
 
@@ -56,11 +57,12 @@ Then, populate the sheet with addresses as you see fit using your favorite sprea
 
 ## Google Maps API key
 
-To fetch latitude and longitude coordinates, this script requires a **Google Cloud API Key** that is attached to an account with the **Google Maps Geocoding API** enabled. This requires a credit card, but the Google Maps Platform currently offers $200 of monthly credit for using its APIs. $5 per 1000 requests = a limit of 40,000 requests in a month before any costs are incurred.
+To fetch latitude and longitude coordinates, this script requires a **Google Cloud API Key** that is attached to an account with the **Google Maps Geocoding API** enabled, which requires a credit card. The Geocoding API is in the "Essentials" level, and as of March 1, 2025, Google only offers "Essential" APIs **10,000 free calls per month**. Be mindful of this limit if you don't want to receive a bill from Google later!
 
 * Sources:
   * https://mapsplatform.google.com/pricing/
   * https://developers.google.com/maps/billing-and-pricing/pricing?hl=en#geocoding
+  * https://mapsplatform.google.com/resources/blog/build-more-for-free-and-access-more-discounts-online-with-google-maps-platform-updates/
 
 This API key should be stored in a file called **`secrets.json`**, also located in the same folder as `main.py`. Running the script once will automatically create this file, but you can just as easily create one yourself with a simple text editor. `secrets.json` should follow this format:
 
@@ -74,19 +76,21 @@ This API key should be stored in a file called **`secrets.json`**, also located 
 
 By default, this script queries for FIPS codes from the most recent US Census (2020 as of writing). If you're running this script in the future (or if you're running retrospective studies), the variable `CENSUS_YEAR` near the top of the file `main.py` must be changed so the correct FIPS codes can be requested. Refer to the [FCC Area API documentation](https://geo.fcc.gov/api/census/#!/block/get_block_find) for more info.
 
-This should be set to align with the version of ADI dataset you wish to use.
+This should be set to align with the version(s) of the ADI dataset(s) you wish to use.
 
 ## ADI data
 
-Download your desired ADI dataset from the [Neighborhood Atlas website](https://www.neighborhoodatlas.medicine.wisc.edu/download). Select these options: **12-digit FIPS codes**, **All States**, and your desired year/version.
+Download your desired ADI datasets from the [Neighborhood Atlas website](https://www.neighborhoodatlas.medicine.wisc.edu/download). Select these options: **12-digit FIPS codes**, **All States**, and your desired year/version.
 
-Your download should be a .zip file containing 1 .txt and 1 .csv file. Place the .txt and .csv files in a folder named `adi-data` in the same folder as `main.py`. Running the script once will create this folder for you, or you can create it yourself.
+* If you know all your addresses are within a specific state, feel free to select the option for that state instead of "All States".
+
+Your download should be a .zip file containing 1 .txt and 1 .csv file. Place the .csv file in a folder named `adi-data` in the same folder as `main.py`. Running the script once will create this folder for you, or you can create it yourself.
+
+You can place multiple .csv files from the Neighborhood Atlas in the `adi-data` folder (different versions, different years, etc.) and the script will look up and report ADI scores from all of them in the results.
 
 ---
 
-The folder `adi-data` and files `secrets.json` and `address.csv` are untracked in this Git repository due to containing information specific to you.
-
----
+The folder `adi-data` and files `secrets.json` and `addresses.csv` are untracked in this Git repository due to containing information specific to you.
 
 # Running the script
 
@@ -102,9 +106,9 @@ python main.py
 deactivate
 ```
 
-The script will process each address one-at-a-time. When complete, each address and all associated location data will be written to a timestamped CSV file for manual review.
+The script will process each address one-at-a-time. When complete, each address and all associated location data will be written to a resultant CSV file with a timestamp for manual review.
 
-We encourage programmers to modify this script to better integrate into your tech stack. For example, instead of using manually-edited CSVs for input and output, you can use a database API to fetch and upload location data.
+We encourage programmers to modify this script to better integrate into their tech stack. For example, instead of using manually-edited CSVs for input, you can use an API of your own to fetch location data from your study.
 
 # Funding
 

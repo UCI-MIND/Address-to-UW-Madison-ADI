@@ -3,7 +3,8 @@
 import random
 import time
 import urllib
-from dataclasses import dataclass
+from copy import copy
+from dataclasses import asdict, dataclass, field
 from string import digits as DIGITS
 
 import requests
@@ -27,8 +28,7 @@ _PO_BOX_CHECKS = {
 _MILITARY_MAIL_POST_OFFICE = {"APO", "FPO", "DPO"}
 _MILITARY_MAIL_STATES = {"AA", "AP", "AE"}
 
-# Proudly using dataclasses for less boilerplate code :)
-# https://docs.python.org/3/library/dataclasses.html
+FCC_API_URL = "https://geo.fcc.gov/api/census/block/find"
 
 
 @dataclass
@@ -49,10 +49,11 @@ class Location:
     fips: str = ""
 
     # ADI info
-    adi_version: str = ""
-    # Mostly integers, but could also be "suppression code" strings
-    adi_state: str = ""
-    adi_national: str = ""
+    # Maps ADI versions for THIS location to a tuple of 2 strings:
+    #   {"ADI version": ("ADI state ranking", "ADI national ranking")}
+    # Example:
+    #   {"CA_v3.2": (4, 4), "US_v4_0_1": (3, 2)}
+    adi_data: dict[str:tuple] = field(default_factory=dict)
 
     def get_full_address(self) -> str:
         """Returns a string containing the full address of this Location.
@@ -115,7 +116,7 @@ class Location:
             except Exception as e:
                 print(f"        Encountered an error with geocoding: {e}")
         else:
-            print("This address is not eligible for geocoding")
+            print("This location's address is not eligible for geocoding")
         return ()
 
     def get_fips(self) -> str:
@@ -124,7 +125,9 @@ class Location:
         FIPS data is provided by the US FCC Area API.
         """
         if self.latitude is None or self.longitude is None:
-            print("FIPS code requires latitude/longitude coordinates.")
+            print(
+                "Cannot look up FIPS code: this location is missing latitude/longitude coordinates."
+            )
             return ""
         # Census year specified in main.py
         url_params = urllib.parse.urlencode(
@@ -135,11 +138,10 @@ class Location:
                 "format": "json",
             }
         )
-        fcc_api_url = "https://geo.fcc.gov/api/census/block/find"
         try:
             # print(f"        Requesting URL {url}?{params}")
             time.sleep(0.5 + random.random())  # rate limiting
-            api_response = requests.get(url=fcc_api_url, params=url_params)
+            api_response = requests.get(url=FCC_API_URL, params=url_params)
             data = api_response.json()
             if isinstance(data, dict) and "Block" in data and "FIPS" in data["Block"]:
                 fips_code = data["Block"]["FIPS"]
@@ -158,43 +160,59 @@ class Location:
             print(f"        Encountered an error with FCC API call: {e}")
         return ""
 
-    def get_adi(self, adi_version: str, adi_data: dict) -> tuple[str]:
-        """Sets the state and national ADI ranks for this Location.
-        Also sets the ADI version.
-        Returns the ranks as a tuple: (state, national)
+    def get_adi(self, local_adi_file_data: list[tuple[str, dict]]) -> dict:
+        """Sets the ADI version, state and national ranks for this Location.
+        Returns the ranks as a dict mapping ADI version to a tuple of rankings: {"ver": ("state", "national"), ... }
         Due to some ranks not being valid integers, the rankings are stored as strings.
         (See "Suppression Codes" in the ADI data's accompanying .txt file for more details.)
         """
         if len(self.fips) == 0:
-            print("ADI scores require FIPS code.")
-            return ()
-        if len(adi_version) > 0:
-            # Filename could be a bit long and wasteful if stored in bulk;
-            # you can map these longer filenames to shorter strings if desired
-            self.adi_version = adi_version
+            print("Cannot look up ADI score: this location is missing a FIPS code.")
+            return dict()
+        for adi_sheet in local_adi_file_data:
+            loaded_adi_version = adi_sheet[0]
+            loaded_adi_data = adi_sheet[1]
 
-        # ADI data expects 12-digit FIPS codes for lookup
-        # FIPS data is not guaranteed to be 12 chars long; FCC API usually provides 15-char codes but could be 14 chars long
-        fips_for_lookup = self.fips
-        match len(fips_for_lookup):
-            case 12:
-                pass
-            case 14:
-                # print(
-                #     "        14-char FIPS: Adding a leading 0 and truncating to 12 chars for ADI lookup only"
-                # )
-                fips_for_lookup = f"0{fips_for_lookup}"[:12]
-            case 15:
-                # print(
-                #     "        15-char FIPS: Truncating to 12 chars for ADI lookup only"
-                # )
-                fips_for_lookup = fips_for_lookup[:12]
-            case _:
-                print(
-                    f"        Invalid FIPS length: {len(fips_for_lookup)} (expected 12-, 14-, or 15-char long FIPS code)"
-                )
-                return ()
-        if fips_for_lookup in adi_data:
-            self.adi_state, self.adi_national = adi_data[fips_for_lookup]
-            return (self.adi_state, self.adi_national)
-        return ()
+            # ADI data expects 12-digit FIPS codes for lookup
+            # FIPS data is not guaranteed to be 12 chars long; FCC API usually provides 15-char codes but could be 14 chars long
+            fips_for_lookup = self.fips
+            match len(fips_for_lookup):
+                case 12:
+                    pass
+                case 14:
+                    # print(
+                    #     "        14-char FIPS: Adding a leading 0 and truncating to 12 chars for ADI lookup only"
+                    # )
+                    fips_for_lookup = f"0{fips_for_lookup}"[:12]
+                case 15:
+                    # print(
+                    #     "        15-char FIPS: Truncating to 12 chars for ADI lookup only"
+                    # )
+                    fips_for_lookup = fips_for_lookup[:12]
+                case _:
+                    print(
+                        f"        Invalid FIPS length: {len(fips_for_lookup)} (expected 12-, 14-, or 15-char long FIPS code)"
+                    )
+                    return ()
+            if fips_for_lookup in loaded_adi_data:
+                self.adi_data[loaded_adi_version] = loaded_adi_data[fips_for_lookup]
+        return self.adi_data
+
+    def prep_for_output(self) -> list[dict]:
+        """Returns a list of dictionaries, with each dictionary being a row to be written to the
+        final CSV file.
+        One row will be written per ADI lookup (multiple ADI lookups can occur if multiple ADI
+        spreadsheets are placed in the "adi-data" folder).
+        """
+        location_data_dict = asdict(self)
+        del location_data_dict["adi_data"]
+        result = []
+        for adi_version in self.adi_data:
+            # Create a copy of location_data_dict and add these keys:
+            # "adi_version","adi_state","adi_national" (one per ADI source file)
+            one_row_data = copy(location_data_dict)
+            one_row_data["adi_version"] = adi_version
+            one_row_data["adi_state"] = self.adi_data[adi_version][0]
+            one_row_data["adi_national"] = self.adi_data[adi_version][1]
+            result.append(one_row_data)
+        return result
